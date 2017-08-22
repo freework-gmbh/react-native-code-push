@@ -1,5 +1,7 @@
 // Adapted from https://raw.githubusercontent.com/facebook/react-native/master/local-cli/generator-android/templates/src/app/react.gradle
 
+import java.nio.file.Paths;
+
 def config = project.hasProperty("react") ? project.react : [];
 def bundleAssetName = config.bundleAssetName ?: "index.android.bundle"
 
@@ -17,12 +19,17 @@ void runBefore(String dependentTaskName, Task task) {
 gradle.projectsEvaluated {
     def buildTypes = android.buildTypes.collect { type -> type.name }
     android.buildTypes.each {
-        it.resValue 'string', "CODE_PUSH_APK_BUILD_TIME", Long.toString(System.currentTimeMillis())
+        // to prevent incorrect long value restoration from strings.xml we need to wrap it with double quotes
+        // https://github.com/Microsoft/cordova-plugin-code-push/issues/264
+        it.resValue 'string', "CODE_PUSH_APK_BUILD_TIME", String.format("\"%d\"", System.currentTimeMillis())
     }
     def productFlavors = android.productFlavors.collect { flavor -> flavor.name }
     if (!productFlavors) productFlavors.add('')
     def nodeModulesPath;
-    if (project.hasProperty('nodeModulesPath')) {
+    if (config.root) {
+        nodeModulesPath = Paths.get(config.root, "/node_modules");
+    }
+    else if (project.hasProperty('nodeModulesPath')) {
         nodeModulesPath = project.nodeModulesPath
     } else {
         nodeModulesPath = "../../node_modules";
@@ -39,7 +46,7 @@ gradle.projectsEvaluated {
             def jsBundleDir = elvisFile(config."$jsBundleDirConfigName") ?:
                     file("$buildDir/intermediates/assets/${targetPath}")
 
-            def resourcesDirConfigName = "jsBundleDir${targetName}"
+            def resourcesDirConfigName = "resourcesDir${targetName}"
             def resourcesDir = elvisFile(config."${resourcesDirConfigName}") ?:
                     file("$buildDir/intermediates/res/merged/${targetPath}")
 
@@ -52,11 +59,16 @@ gradle.projectsEvaluated {
             
             def jsBundleFile = file("$jsBundleDir/$bundleAssetName")
 
+            def resourcesMapTempFileName = "CodePushResourcesMap-" + java.util.UUID.randomUUID().toString().substring(0,8) + ".json"
+
+            // Additional node commandline arguments
+            def nodeExecutableAndArgs = config.nodeExecutableAndArgs ?: ["node"]
+
             // Make this task run right before the bundle task
             def recordFilesBeforeBundleCommand = tasks.create(
                     name: "recordFilesBeforeBundleCommand${targetName}",
                     type: Exec) {
-                commandLine "node", "${nodeModulesPath}/react-native-code-push/scripts/recordFilesBeforeBundleCommand.js", resourcesDir
+                commandLine (*nodeExecutableAndArgs, "${nodeModulesPath}/react-native-code-push/scripts/recordFilesBeforeBundleCommand.js", resourcesDir, resourcesMapTempFileName)
             }
 
             recordFilesBeforeBundleCommand.dependsOn("merge${targetName}Resources")
@@ -67,8 +79,11 @@ gradle.projectsEvaluated {
             def generateBundledResourcesHash = tasks.create(
                     name: "generateBundledResourcesHash${targetName}",
                     type: Exec) {
-                commandLine "node", "${nodeModulesPath}/react-native-code-push/scripts/generateBundledResourcesHash.js", resourcesDir, "$jsBundleDir/$bundleAssetName", jsBundleDir
+                commandLine (*nodeExecutableAndArgs, "${nodeModulesPath}/react-native-code-push/scripts/generateBundledResourcesHash.js", resourcesDir, "$jsBundleDir/$bundleAssetName", jsBundleDir, resourcesMapTempFileName)
             }
+
+            // We need to generate and record the resources map, but we use it to generate the bundle hash
+            generateBundledResourcesHash.dependsOn("recordFilesBeforeBundleCommand${targetName}")
 
             generateBundledResourcesHash.dependsOn("bundle${targetName}JsAndAssets")
             runBefore("processArmeabi-v7a${targetName}Resources", generateBundledResourcesHash)
