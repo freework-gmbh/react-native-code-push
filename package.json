@@ -1,5 +1,5 @@
 {
-  "name": "react-native-code-push",
+  "name": "@freework/react-native-code-push",
   "version": "1000.0.0-beta",
   "description": "React Native plugin for the CodePush service",
   "main": "CodePush.js",
@@ -14,7 +14,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Microsoft/react-native-code-push"
+    "url": "https://github.com/freework-gmbh/react-native-code-push"
   },
   "dependencies": {
     "code-push": "1.11.2-beta",
